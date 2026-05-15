@@ -1,0 +1,32 @@
+# Render deployment config.
+#
+# On the Render dashboard, set environment variables:
+#   GROQ_API_KEY     -- required (primary LLM)
+#   GEMINI_API_KEY   -- optional (fallback LLM)
+#
+# Free tier specifics:
+#   - Cold starts can take 30-60s. SHL allows up to 2 min for first /health.
+#   - 512MB RAM is enough; bge-small + 377-item catalog uses ~200MB.
+#   - No persistent disk needed; catalog is committed to the repo.
+
+services:
+  - type: web
+    name: shl-recommender
+    runtime: python
+    plan: free
+    region: singapore
+    pythonVersion: "3.11"
+    buildCommand: pip install --no-cache-dir -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PRIMARY_MODEL
+        value: llama-3.3-70b-versatile
+      - key: FALLBACK_MODEL
+        value: gemini-2.0-flash
+      - key: PYTHONUNBUFFERED
+        value: "1"

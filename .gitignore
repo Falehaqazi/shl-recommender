@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Virtualenv
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Local secrets
+.env
+
+# Eval reports get regenerated on every run; checkpoint manually if needed
+data/eval_report.json
+
+# Scraper intermediate output
+data/catalog_index.json
+
+# Local sentence-transformers cache (huggingface)
+.cache/
+huggingface/
