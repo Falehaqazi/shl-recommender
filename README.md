@@ -202,7 +202,4 @@ warm-up, /chat typically responds in 2–4 seconds.
 
 ## AI assistance used
 
-Claude (via claude.ai) for: scaffold generation, prompt iteration,
-trace pattern extraction, eval harness code. All design decisions
-(retrieval method, agent topology, guardrail strategy) were mine and
-are defended in this README and `DESIGN_LOG.md`.
+Claude (claude.ai) for: scaffold generation, prompt iteration against the provided traces, trace pattern extraction, eval harness code. All design decisions — hybrid retrieval over pure dense, six-intent router over a mega-prompt, HTML-comment sentinel for stateless state recovery, separate soft-decline vs hard-refuse paths — were mine, made by reading the 10 provided traces and observing failure modes. See DESIGN_LOG.md for the trace-driven reasoning.
