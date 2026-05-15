@@ -70,20 +70,39 @@ class HybridRetriever:
         log.info("Building BM25 index over %d items", len(self._texts))
         self._bm25 = BM25Okapi(self._tokenized)
 
-        # Lazy import so the module is usable in environments without
-        # sentence-transformers installed (e.g. for BM25-only experiments).
-        from sentence_transformers import SentenceTransformer
+        # Dense embeddings are optional. Disabled when:
+        # - EMBED_MODEL env is "none" or unset to "none"
+        # - sentence-transformers can't be imported
+        # - We're on a memory-constrained host (Render free tier OOMs
+        #   loading bge-small on top of langgraph/groq/etc.)
+        # When disabled, we run pure BM25. On a 377-item catalog with
+        # technical product names that's a defensible fallback.
+        self._embedder = None
+        self._embeddings: np.ndarray | None = None
 
-        log.info("Loading embedding model: %s", settings.embedding_model)
-        self._embedder = SentenceTransformer(settings.embedding_model)
-        log.info("Encoding %d catalog items", len(self._texts))
-        self._embeddings: np.ndarray = self._embedder.encode(
-            self._texts,
-            normalize_embeddings=True,
-            show_progress_bar=False,
-            batch_size=32,
-        )
-        log.info("Retriever ready. dim=%d", self._embeddings.shape[1])
+        model_name = settings.embedding_model
+        if model_name and model_name.lower() != "none":
+            try:
+                from sentence_transformers import SentenceTransformer
+                log.info("Loading embedding model: %s", model_name)
+                self._embedder = SentenceTransformer(model_name)
+                log.info("Encoding %d catalog items", len(self._texts))
+                self._embeddings = self._embedder.encode(
+                    self._texts,
+                    normalize_embeddings=True,
+                    show_progress_bar=False,
+                    batch_size=32,
+                )
+                log.info("Hybrid retriever ready. dim=%d", self._embeddings.shape[1])
+            except (ImportError, MemoryError, Exception) as e:
+                log.warning(
+                    "Dense embeddings disabled (%s: %s). Falling back to BM25-only.",
+                    type(e).__name__, e,
+                )
+                self._embedder = None
+                self._embeddings = None
+        else:
+            log.info("Dense embeddings disabled by config. BM25-only mode.")
 
     # ------------------------------------------------------------------
 
@@ -93,14 +112,8 @@ class HybridRetriever:
         top_k: int | None = None,
         candidate_pool: int | None = None,
     ) -> list[RetrievalHit]:
-        """Search the catalog. Returns top_k hits ranked by RRF.
-
-        Args:
-            query: The search query (may be multi-line, may include
-                concatenated user turns).
-            top_k: How many results to return. Default settings.final_top_k.
-            candidate_pool: How many candidates from each retriever to fuse.
-                Default settings.retrieval_top_k.
+        """Search the catalog. Returns top_k hits ranked by RRF (or pure BM25
+        if dense embeddings are disabled).
         """
         top_k = top_k or settings.final_top_k
         pool = candidate_pool or settings.retrieval_top_k
@@ -112,6 +125,18 @@ class HybridRetriever:
         bm25_scores = self._bm25.get_scores(_tokenize(query))
         bm25_order = np.argsort(-bm25_scores)[:pool].tolist()
 
+        # BM25-only mode (e.g. memory-constrained deployments).
+        if self._embedder is None or self._embeddings is None:
+            return [
+                RetrievalHit(
+                    item=self.catalog.items[idx],
+                    score=float(bm25_scores[idx]),
+                    bm25_rank=rank + 1,
+                    dense_rank=None,
+                )
+                for rank, idx in enumerate(bm25_order[:top_k])
+            ]
+
         # --- Dense ---
         q_emb = self._embedder.encode(
             [query], normalize_embeddings=True, show_progress_bar=False
@@ -120,8 +145,6 @@ class HybridRetriever:
         dense_order = np.argsort(-dense_scores)[:pool].tolist()
 
         # --- RRF fusion ---
-        # score(i) = sum_r 1 / (k + rank_r(i))
-        # k=60 is the canonical constant; insensitive to tuning.
         k = settings.rrf_k
         fused: dict[int, float] = {}
         bm25_rank_of: dict[int, int] = {}
@@ -143,7 +166,6 @@ class HybridRetriever:
             )
             for idx, score in ranked
         ]
-
     def filter_by_test_type(
         self, hits: list[RetrievalHit], allowed: set[str]
     ) -> list[RetrievalHit]:

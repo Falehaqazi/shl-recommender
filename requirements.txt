@@ -10,16 +10,16 @@ langgraph==0.2.34
 groq==0.11.0
 google-generativeai==0.8.3
 
-# Retrieval
+# Retrieval (BM25-only in deployment, dense optional)
 rank-bm25==0.2.2
-sentence-transformers==3.1.1
-# sentence-transformers pulls torch transitively. We don't pin torch
-# explicitly so Render can pick a CPU wheel matching the base image.
 numpy>=1.26,<2.1
 
-# Scraper backup
+# HTTP client + scraping
 httpx==0.27.2
 beautifulsoup4==4.12.3
+
+# Env loading
+python-dotenv==1.0.1
 
 # Dev / eval
 pytest==8.3.3
